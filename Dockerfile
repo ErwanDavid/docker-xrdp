@@ -38,6 +38,7 @@ RUN yum clean all && \
                    xterm \
                    xrdp \
                    supervisor \
+                   mlocate \
                    gnome-session && \
                    yum clean all && \
                    rm -rf /var/cache/yum
