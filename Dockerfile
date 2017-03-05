@@ -1,72 +1,51 @@
-FROM centos:centos7
+FROM ubuntu:xenial
 
-LABEL io.openshift.expose-services="5901:tcp"
+ENV DEBIAN_FRONTEND noninteractive
 
-RUN yum -y update
-# install wget, unzip lsof ...
-RUN yum -y install curl wget zip unzip lsof nano iotop
+# Supervisor (rigormortiz/ubuntu-supervisor:0.1)
+RUN apt-get update -y && \
+    apt-get install -y supervisor && \
+    apt-get autoclean && apt-get autoremove && \
+    rm -rf /var/lib/apt/lists/* 
 
-# install nmon
-WORKDIR /usr/bin
-RUN curl -L -o nmon https://github.com/axibase/nmon/releases/download/16f/nmon_x86_rhel6 && \
-	chmod +x nmon
-WORKDIR /
+# xrdp
+RUN apt-get update -y && \
+    apt-get install -y xrdp && \
+    apt-get autoclean && apt-get autoremove && \
+    rm -rf /var/lib/apt/lists/* && \
+    useradd -ms /bin/bash desktop && \
+    sed -i '/TerminalServerUsers/d' /etc/xrdp/sesman.ini && \
+    sed -i '/TerminalServerAdmins/d' /etc/xrdp/sesman.ini && \
+    xrdp-keygen xrdp auto && \
+    echo "desktop:desktop" | chpasswd
 
-# install ssh + make EASY password
-RUN yum -y install openssh-server
-RUN mkdir /var/run/sshd
-RUN echo 'root:dark' | chpasswd
-RUN mkdir -p /var/run/sshd
-RUN ssh-keygen -t rsa -f /etc/ssh/ssh_host_rsa_key -N ''
+# mate desktop
+RUN apt-get update -y && \
+    apt-get install -y mate-core \
+    mate-desktop-environment mate-notification-daemon \
+    gconf-service libnspr4 libnss3 fonts-liberation \
+    libappindicator1 libcurl3 fonts-wqy-microhei firefox && \
+    apt-get autoclean && apt-get autoremove && \
+    rm -rf /var/lib/apt/lists/* && \
+    echo "mate-session" > /home/desktop/.xsession
 
+# ssh
+RUN apt-get update && apt-get install -y openssh-server sudo &&\
+    adduser desktop sudo &&\
+    sed -re "s/PasswordAuthentication\s.*/PasswordAuthentication yes/g" -i /etc/ssh/sshd_config
+RUN chown desktop:desktop /home/desktop && mkdir /var/run/sshd
 
-USER root
-ENV DISPLAY="" \
-    HOME=/home/1001
-
-RUN yum clean all && \
-    yum update -y && \
-    yum install -y epel-release
-
-RUN yum clean all && \
-    yum update -y && \
-    yum install -y --setopt=tsflags=nodocs \
-                   tigervnc-server \
-    		           xorg-x11-server-utils \
-                   xorg-x11-server-Xvfb \
-                   xorg-x11-fonts-* \
-                   xterm \
-                   xrdp \
-                   supervisor \
-                   mlocate \
-                   gnome-session && \
-                   yum clean all && \
-                   rm -rf /var/cache/yum
-
-RUN yum install -y --setopt=tsflags=nodocs \
-                  firefox \
-                  net-tools \
-                  yum clean all && \
-                  rm -rf /var/cache/yum/*
-
-RUN /bin/dbus-uuidgen --ensure
-RUN useradd -u 1001 -r -g 0 -d ${HOME} -s /sbin/nologin -c "Kiosk User" kioskuser
-
-ADD xstartup ${HOME}/.vnc/
-RUN echo "${vncpassword}" | vncpasswd -f > ${HOME}/.vnc/passwd
-RUN /bin/echo "/usr/bin/firefox" >> /home/1001/.vnc/xstartup
-
-RUN chown -R 1001:0 ${HOME} && \
-    chmod 775 ${HOME}/.vnc/xstartup && \
-    chmod 600 ${HOME}/.vnc/passwd
+# My tools : java, deluge, jdowloader, tcpdump, nmap, 
+RUN apt-get update && apt-get install -y tcpdump nmap deluged deluge-webui \
+    lsof iftop nethogs net-tools
 
 
-WORKDIR /
-ADD start.sh /
+ADD sshd.conf /etc/supervisor/conf.d/sshd.conf
+ADD deluged.conf /etc/supervisor/conf.d/deluged.conf
+ADD xrdp.conf /etc/supervisor/conf.d/xrdp.conf
 
-RUN chmod 775 start.sh
+CMD ["/usr/bin/supervisord", "-n"]
 
-EXPOSE 5901 22 3350
+EXPOSE 3389 22 8112
 
-
-ENTRYPOINT ["/start.sh"]
+#ebconf: delaying package configuration, since apt-utils is not installed
